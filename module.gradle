@@ -1,0 +1,9 @@
+ext {
+    moduleLibraryName = "zygiskgadget"
+    magiskModuleId = "zygisk_gadget"
+    moduleName = "ZygiskGadget"
+    moduleAuthor = "hackcatml"
+    moduleDescription = "Zygisk module that injects frida-gadget"
+    moduleVersion = "v1.0.0"
+    moduleVersionCode = 1
+}
