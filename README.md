@@ -2,7 +2,7 @@
 A zygisk module loads frida-gadget
 
 # Usage
-Git clone this repo.<br>
+Git clone this repo and open it in Android Studio.<br>
 
 Put the target package name in the "template/magisk_module/targetpkg" file.<br>
 
