@@ -47,7 +47,12 @@ void injection_thread(const char* target_package_name, int time_to_sleep) {
 
     std::string gadget_path = std::string("/data/data/") +
                               std::string(target_package_name) +
+#ifdef __aarch64__
                               std::string("/frida-gadget-16.1.7-android-arm64.so");
+#else   // arm
+                              std::string("/frida-gadget-16.1.7-android-arm.so");
+#endif
+
     std::ifstream file(gadget_path);
     if (file) {
         LOGD("gadget is ready to load from %s", gadget_path.c_str());
@@ -94,7 +99,11 @@ public:
             const char* time_to_sleep = readFileContents(file_path_to_read);
             _time_to_sleep = std::stoi(time_to_sleep);
 
+#ifdef __aarch64__
             std::string frida_gadget_path = module_dir + std::string("/frida-gadget-16.1.7-android-arm64.so");
+#else   // arm
+            std::string frida_gadget_path = module_dir + std::string("/frida-gadget-16.1.7-android-arm.so");
+#endif
 
             int fd = _api->connectCompanion();
             // send the length of the string first
