@@ -18,17 +18,17 @@ Install the module using magisk manager
 
 (2) Build and Flash
 ```text
-Git clone this repo and open it in Android Studio.<br>
+Git clone this repo and open it in Android Studio.
 
-Put the target package name in the "template/magisk_module/targetpkg" file.<br>
+Put the target package name in the "template/magisk_module/targetpkg" file.
 
-Put the sleep time (in milliseconds) before loading the frida-gadget in the "template/magisk_module/sleeptime" file.<br>
+Put the sleep time (in milliseconds) before loading the frida-gadget in the "template/magisk_module/sleeptime" file.
 
-Build and flash by "./gradlew :module:flashAndRebootRelease"<br>
+Build and flash by "./gradlew :module:flashAndRebootRelease"
 
-After rebooting, launch the target app.<br>
+After rebooting, launch the target app.
 
-Attach to the target app by "frida -U Gadget"<br>
+Attach to the target app by "frida -U Gadget"
 ```
 
 # Credits
