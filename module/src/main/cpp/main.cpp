@@ -4,6 +4,8 @@
 #include <fstream>
 #include <sstream>
 #include <array>
+#include <filesystem>
+#include <regex>
 
 #include "zygisk.hpp"
 #include "log.h"
@@ -13,11 +15,10 @@ using zygisk::Api;
 using zygisk::AppSpecializeArgs;
 using zygisk::ServerSpecializeArgs;
 
-const char* readFileContents(const std::string& filePath) {
+std::string readFileContents(const std::string& filePath) {
     std::ifstream file(filePath);
     if (!file.is_open()) {
-        // Handle the error, e.g., by returning nullptr
-        return nullptr;
+        return "";
     }
 
     std::stringstream buffer;
@@ -25,7 +26,12 @@ const char* readFileContents(const std::string& filePath) {
     file.close();
 
     std::string contents = buffer.str(); // Convert the buffer to a string
-    return contents.c_str(); // Return the C-style string
+    // Remove newlines and whitespace
+    contents.erase(std::remove_if(contents.begin(), contents.end(), [](unsigned char x) {
+        return std::isspace(x);
+    }), contents.end());
+
+    return contents; // Return the C-style string
 }
 
 std::string getPathFromFd(int fd) {
@@ -41,17 +47,27 @@ std::string getPathFromFd(int fd) {
     }
 }
 
-void injection_thread(const char* target_package_name, int time_to_sleep) {
-//    LOGD("frida-gadget injection thread start for %s", target_package_name);
+namespace fs = std::filesystem;
+std::string find_matching_file(const fs::path& directory, const std::regex& pattern) {
+    for (const auto& entry : fs::directory_iterator(directory)) {
+        const auto& path = entry.path();
+        const auto& filename = path.filename().string();
+
+        if (std::regex_search(filename, pattern)) {
+            return filename;
+        }
+    }
+    return ""; // Return an empty string if no match is found
+}
+
+void injection_thread(const char* target_package_name, const char* frida_gadget_name, int time_to_sleep) {
+    LOGD("frida-gadget injection thread start for %s, gadget name: %s, usleep: %d", target_package_name, frida_gadget_name, time_to_sleep);
     usleep(time_to_sleep);
 
     std::string gadget_path = std::string("/data/data/") +
                               std::string(target_package_name) +
-#ifdef __aarch64__
-                              std::string("/frida-gadget-16.1.7-android-arm64.so");
-#else   // arm
-                              std::string("/frida-gadget-16.1.7-android-arm.so");
-#endif
+                              std::string("/") +
+                              std::string(frida_gadget_name);
 
     std::ifstream file(gadget_path);
     if (file) {
@@ -87,23 +103,28 @@ public:
 
         std::string module_dir = getPathFromFd(_api->getModuleDir());
         std::string file_path_to_read = module_dir + std::string("/targetpkg");
-        const char* target_package_name = readFileContents(file_path_to_read);
+        std::string target_package_name = readFileContents(file_path_to_read);
 
-        if (strcmp(package_name, target_package_name) == 0) {
-            enable_gadget_injection = true;
+        if (strcmp(package_name, target_package_name.c_str()) == 0) {
+            _enable_gadget_injection = true;
 
-            _target_package_name = new char[strlen(target_package_name) + 1];
-            strcpy(_target_package_name, target_package_name);
+            _target_package_name = new char[strlen(target_package_name.c_str()) + 1];
+            strcpy(_target_package_name, target_package_name.c_str());
 
             file_path_to_read = module_dir + std::string("/sleeptime");
-            const char* time_to_sleep = readFileContents(file_path_to_read);
+            std::string time_to_sleep = readFileContents(file_path_to_read);
             _time_to_sleep = std::stoi(time_to_sleep);
 
 #ifdef __aarch64__
-            std::string frida_gadget_path = module_dir + std::string("/frida-gadget-16.1.7-android-arm64.so");
-#else   // arm
-            std::string frida_gadget_path = module_dir + std::string("/frida-gadget-16.1.7-android-arm.so");
+            std::regex pattern("frida-gadget.*arm64\\.so");
+#else
+            std::regex pattern("frida-gadget.*arm\\.so");
 #endif
+            std::string frida_gadget_name = find_matching_file(module_dir, pattern);
+            _frida_gadget_name = new char[strlen(frida_gadget_name.c_str()) + 1];
+            strcpy(_frida_gadget_name, frida_gadget_name.c_str());
+
+            std::string frida_gadget_path = module_dir + std::string("/") + frida_gadget_name;
 
             int fd = _api->connectCompanion();
             // send the length of the string first
@@ -124,8 +145,8 @@ public:
     }
 
     void postAppSpecialize(const AppSpecializeArgs *args) override {
-        if (enable_gadget_injection) {
-            std::thread t(injection_thread, _target_package_name, _time_to_sleep);
+        if (_enable_gadget_injection) {
+            std::thread t(injection_thread, _target_package_name, _frida_gadget_name, _time_to_sleep);
             t.detach();
         }
     }
@@ -133,9 +154,10 @@ public:
 private:
     Api* _api{};
     JNIEnv* _env{};
-    bool enable_gadget_injection{};
+    bool _enable_gadget_injection{};
     char* _target_package_name{};
     int _time_to_sleep{};
+    char* _frida_gadget_name{};
 
 };
 
