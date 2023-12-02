@@ -64,9 +64,10 @@ void injection_thread(const char* target_package_name, const char* frida_gadget_
     LOGD("frida-gadget injection thread start for %s, gadget name: %s, usleep: %d", target_package_name, frida_gadget_name, time_to_sleep);
     usleep(time_to_sleep);
 
-    std::string gadget_path = std::string("/data/data/") +
-                              std::string(target_package_name) +
-                              std::string("/") +
+    std::string app_data_dir = std::string("/data/data/") +
+                               std::string(target_package_name) +
+                               std::string("/");
+    std::string gadget_path = app_data_dir +
                               std::string(frida_gadget_name);
 
     std::ifstream file(gadget_path);
@@ -80,9 +81,17 @@ void injection_thread(const char* target_package_name, const char* frida_gadget_
     void* handle = xdl_open(gadget_path.c_str(), 1);
     if (handle) {
         LOGD("frida-gadget loaded");
-        unlink(gadget_path.c_str());
     } else {
         LOGD("frida-gadget failed to load");
+    }
+
+    unlink(gadget_path.c_str());
+    // If there's a froda-gadget config file, remove it too.
+    std::regex pattern("frida-gadget.*\\.config\\.so");
+    std::string frida_config_name = find_matching_file(app_data_dir, pattern);
+    if (!frida_config_name.empty()) {
+        std::string frida_config_path = app_data_dir + frida_config_name;
+        unlink(frida_config_path.c_str());
     }
 }
 
@@ -137,6 +146,28 @@ public:
             length = strlen(frida_gadget_path.c_str());
             write(fd, &length, sizeof(length));
             write(fd, frida_gadget_path.c_str(), length);
+
+            // check if there is a frida-gadget config file
+            std::string frida_config_path = module_dir + std::string("/frida-gadget.config");
+            std::ifstream file(frida_config_path);
+            if (file) {
+                bool frida_config_mode = true;
+                write(fd, &frida_config_mode, sizeof(frida_config_mode));
+
+                // send the frida-gadget config path string
+                length = strlen(frida_config_path.c_str());
+                write(fd, &length, sizeof(length));
+                write(fd, frida_config_path.c_str(), length);
+
+                // send the frida_config_name string
+                std::string frida_config_name = frida_gadget_name.substr(0, frida_gadget_name.find_last_of('.')) + ".config.so";
+                length = strlen(frida_config_name.c_str());
+                write(fd, &length, sizeof(length));
+                write(fd, frida_config_name.c_str(), length);
+            } else {
+                bool frida_config = false;
+                write(fd, &frida_config, sizeof(frida_config));
+            }
 
             close(fd);
         }
@@ -203,8 +234,28 @@ static void companion_handler(int i) {
     char* frida_gadget_path = new char[length];
     read(i, frida_gadget_path, length);
 
+    std::string format = std::string("cp %s /data/data/%s/");
+
+    // check frida_config_mode
+    bool frida_config_mode;
+    read(i, &frida_config_mode, sizeof(frida_config_mode));
+    if (frida_config_mode) {
+        // read the frida_config_path string
+        read(i, &length, sizeof(length));
+        char* frida_config_path = new char[length];
+        read(i, frida_config_path, length);
+
+        // read the frida_config_name string
+        read(i, &length, sizeof(length));
+        char* frida_config_name = new char[length];
+        read(i, frida_config_name, length);
+
+        // copy frida-gadget config file to the app data dir
+        executeCommand(frida_config_path, package_name, (format + std::string(frida_config_name)).c_str());
+    }
+
     // copy frida-gadget to the target package's data dir
-    executeCommand(frida_gadget_path, package_name, "cp %s /data/data/%s/");
+    executeCommand(frida_gadget_path, package_name, format.c_str());
 }
 
 REGISTER_ZYGISK_MODULE(MyModule)
