@@ -33,4 +33,5 @@ Attach to the target app by "frida -U Gadget"
 
 # Credits
 [xDL](https://github.com/hexhacking/xDL)<br>
-[Zygisk-Il2CppDumper](https://github.com/Perfare/Zygisk-Il2CppDumper)
+[Zygisk-Il2CppDumper](https://github.com/Perfare/Zygisk-Il2CppDumper)<br>
+[strongR-frida-android](https://github.com/hzzheyang/strongR-frida-android)

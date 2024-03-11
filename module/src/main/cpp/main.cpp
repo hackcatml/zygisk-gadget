@@ -87,7 +87,7 @@ void injection_thread(const char* target_package_name, const char* frida_gadget_
 
     unlink(gadget_path.c_str());
     // If there's a froda-gadget config file, remove it too.
-    std::regex pattern("frida-gadget.*\\.config\\.so");
+    std::regex pattern("hluda-gadget.*\\.config\\.so");
     std::string frida_config_name = find_matching_file(app_data_dir, pattern);
     if (!frida_config_name.empty()) {
         std::string frida_config_path = app_data_dir + frida_config_name;
@@ -125,9 +125,9 @@ public:
             _time_to_sleep = std::stoi(time_to_sleep);
 
 #ifdef __aarch64__
-            std::regex pattern("frida-gadget.*arm64\\.so");
+            std::regex pattern("hluda-gadget.*arm64\\.so");
 #else
-            std::regex pattern("frida-gadget.*arm\\.so");
+            std::regex pattern("hluda-gadget.*arm\\.so");
 #endif
             std::string frida_gadget_name = find_matching_file(module_dir, pattern);
             _frida_gadget_name = new char[strlen(frida_gadget_name.c_str()) + 1];
@@ -148,7 +148,7 @@ public:
             write(fd, frida_gadget_path.c_str(), length);
 
             // check if there is a frida-gadget config file
-            std::string frida_config_path = module_dir + std::string("/frida-gadget.config");
+            std::string frida_config_path = module_dir + std::string("/hluda-gadget.config");
             std::ifstream file(frida_config_path);
             if (file) {
                 bool frida_config_mode = true;
