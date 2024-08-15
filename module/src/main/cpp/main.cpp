@@ -15,9 +15,24 @@ using zygisk::Api;
 using zygisk::AppSpecializeArgs;
 using zygisk::ServerSpecializeArgs;
 
+void writeString(int fd, const std::string& str) {
+    size_t length = str.size() + 1;
+    write(fd, &length, sizeof(length));
+    write(fd, str.c_str(), length);
+}
+
+std::string readString(int fd) {
+    size_t length;
+    read(fd, &length, sizeof(length));
+    std::vector<char> buffer(length);
+    read(fd, buffer.data(), length);
+    return {buffer.data()};
+}
+
 std::string readFileContents(const std::string& filePath) {
     std::ifstream file(filePath);
     if (!file.is_open()) {
+        LOGW("cannot open %s", filePath.c_str());
         return "";
     }
 
@@ -31,7 +46,7 @@ std::string readFileContents(const std::string& filePath) {
         return std::isspace(x);
     }), contents.end());
 
-    return contents; // Return the C-style string
+    return contents;
 }
 
 std::string getPathFromFd(int fd) {
@@ -86,7 +101,7 @@ void injection_thread(const char* target_package_name, const char* frida_gadget_
     }
 
     unlink(gadget_path.c_str());
-    // If there's a froda-gadget config file, remove it too.
+    // If there's a frida-gadget config file, remove it too.
     std::regex pattern("hluda-gadget.*\\.config\\.so");
     std::string frida_config_name = find_matching_file(app_data_dir, pattern);
     if (!frida_config_name.empty()) {
@@ -111,67 +126,44 @@ public:
         auto package_name = _env->GetStringUTFChars(args->nice_name, nullptr);
 
         std::string module_dir = getPathFromFd(_api->getModuleDir());
-        std::string file_path_to_read = module_dir + std::string("/targetpkg");
-        std::string target_package_name = readFileContents(file_path_to_read);
+        int fd = _api->connectCompanion();
+
+        std::string targetpkg_file_path_to_read = module_dir + "/targetpkg";
+        writeString(fd, targetpkg_file_path_to_read);
+        std::string target_package_name = readString(fd);
 
         if (strcmp(package_name, target_package_name.c_str()) == 0) {
+            LOGD("enable gadget injection %s", package_name);
             _enable_gadget_injection = true;
 
-            _target_package_name = new char[strlen(target_package_name.c_str()) + 1];
-            strcpy(_target_package_name, target_package_name.c_str());
+            _target_package_name = strdup(target_package_name.c_str());
 
-            file_path_to_read = module_dir + std::string("/sleeptime");
-            std::string time_to_sleep = readFileContents(file_path_to_read);
-            _time_to_sleep = std::stoi(time_to_sleep);
+            std::string sleeptime_file_path_to_read = module_dir + "/sleeptime";
+            writeString(fd, sleeptime_file_path_to_read);
+            _time_to_sleep = std::stoi(readString(fd));
 
-#ifdef __aarch64__
-            std::regex pattern("hluda-gadget.*arm64\\.so");
-#else
-            std::regex pattern("hluda-gadget.*arm\\.so");
-#endif
-            std::string frida_gadget_name = find_matching_file(module_dir, pattern);
-            _frida_gadget_name = new char[strlen(frida_gadget_name.c_str()) + 1];
-            strcpy(_frida_gadget_name, frida_gadget_name.c_str());
+            writeString(fd, module_dir);
+            std::string frida_gadget_name = readString(fd);
+            _frida_gadget_name = strdup(frida_gadget_name.c_str());
 
-            std::string frida_gadget_path = module_dir + std::string("/") + frida_gadget_name;
+            std::string frida_gadget_path = module_dir + "/" + frida_gadget_name;
+            writeString(fd, frida_gadget_path);
 
-            int fd = _api->connectCompanion();
-            // send the length of the string first
-            size_t length = strlen(_target_package_name) + 1; // +1 for the null terminator
-            write(fd, &length, sizeof(length));
-            // send the target_package_name string
-            write(fd, _target_package_name, length);
+            std::string frida_config_path = module_dir + "/hluda-gadget.config";
+            writeString(fd, frida_config_path);
 
-            // send the frida_gadget_path string
-            length = strlen(frida_gadget_path.c_str());
-            write(fd, &length, sizeof(length));
-            write(fd, frida_gadget_path.c_str(), length);
+            bool frida_config_mode;
+            read(fd, &frida_config_mode, sizeof(frida_config_mode));
 
-            // check if there is a frida-gadget config file
-            std::string frida_config_path = module_dir + std::string("/hluda-gadget.config");
-            std::ifstream file(frida_config_path);
-            if (file) {
-                bool frida_config_mode = true;
-                write(fd, &frida_config_mode, sizeof(frida_config_mode));
-
-                // send the frida-gadget config path string
-                length = strlen(frida_config_path.c_str());
-                write(fd, &length, sizeof(length));
-                write(fd, frida_config_path.c_str(), length);
-
-                // send the frida_config_name string
+            if (frida_config_mode) {
                 std::string frida_config_name = frida_gadget_name.substr(0, frida_gadget_name.find_last_of('.')) + ".config.so";
-                length = strlen(frida_config_name.c_str());
-                write(fd, &length, sizeof(length));
-                write(fd, frida_config_name.c_str(), length);
-            } else {
-                bool frida_config = false;
-                write(fd, &frida_config, sizeof(frida_config));
+                writeString(fd, frida_config_name);
             }
-
+            close(fd);
+        } else {
+            _api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
             close(fd);
         }
-
         _env->ReleaseStringUTFChars(args->nice_name, package_name);
     }
 
@@ -220,42 +212,42 @@ static void executeCommand(const char* gadget_path, const char* package_name, co
 }
 
 static void companion_handler(int i) {
+    std::string targetpkg_file_path_to_read = readString(i);
+    std::string target_package_name = readFileContents(targetpkg_file_path_to_read);
+    writeString(i, target_package_name);
+
+    std::string sleeptime_file_path_to_read = readString(i);
+    if (sleeptime_file_path_to_read.empty())
+        return;
+
     LOGD("hello from companion_handler");
+    std::string time_to_sleep = readFileContents(sleeptime_file_path_to_read);
+    writeString(i, time_to_sleep);
 
-    size_t length;
-    read(i, &length, sizeof(length));
-    // allocate memory for the string
-    char* package_name = new char[length];
-    // read the package_name string
-    read(i, package_name, length);
+#ifdef __aarch64__
+    std::regex pattern("hluda-gadget.*arm64\\.so");
+#else
+    std::regex pattern("hluda-gadget.*arm\\.so");
+#endif
+    std::string module_dir = readString(i);
+    std::string frida_gadget_name = find_matching_file(module_dir, pattern);
+    writeString(i, frida_gadget_name);
 
-    // read the frida_gadget_path string
-    read(i, &length, sizeof(length));
-    char* frida_gadget_path = new char[length];
-    read(i, frida_gadget_path, length);
+    std::string frida_gadget_path = readString(i);
+    std::string frida_config_path = readString(i);
 
-    std::string format = std::string("cp %s /data/data/%s/");
+    std::ifstream file(frida_config_path);
+    bool frida_config_mode = file.good();
+    write(i, &frida_config_mode, sizeof(frida_config_mode));
 
-    // check frida_config_mode
-    bool frida_config_mode;
-    read(i, &frida_config_mode, sizeof(frida_config_mode));
+    std::string format = "cp %s /data/data/%s/";
+
     if (frida_config_mode) {
-        // read the frida_config_path string
-        read(i, &length, sizeof(length));
-        char* frida_config_path = new char[length];
-        read(i, frida_config_path, length);
-
-        // read the frida_config_name string
-        read(i, &length, sizeof(length));
-        char* frida_config_name = new char[length];
-        read(i, frida_config_name, length);
-
-        // copy frida-gadget config file to the app data dir
-        executeCommand(frida_config_path, package_name, (format + std::string(frida_config_name)).c_str());
+        std::string frida_config_name = readString(i);
+        executeCommand(frida_config_path.c_str(), target_package_name.c_str(), (format + frida_config_name).c_str());
     }
 
-    // copy frida-gadget to the target package's data dir
-    executeCommand(frida_gadget_path, package_name, format.c_str());
+    executeCommand(frida_gadget_path.c_str(), target_package_name.c_str(), format.c_str());
 }
 
 REGISTER_ZYGISK_MODULE(MyModule)
