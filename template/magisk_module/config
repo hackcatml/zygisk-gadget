@@ -1,0 +1,9 @@
+{
+    "package":{
+        "name":"com.hackcatml.test",
+        "delay":300000,
+        "mode":{
+            "config":false
+        }
+    }
+}

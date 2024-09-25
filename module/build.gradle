@@ -13,7 +13,7 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         externalNativeBuild {
             cmake {
-                arguments "-DMODULE_NAME:STRING=$moduleLibraryName"
+                arguments "-DMODULE_NAME:STRING=$moduleLibraryName", "-DMODULE_DIR:STRING=$magiskModuleId", "-DTOOL_NAME:STRING=$toolName"
             }
         }
         ndk {
@@ -69,6 +69,9 @@ afterEvaluate {
             from("$buildDir/intermediates/stripped_native_libs/$variantLowered/out/lib") {
                 into 'lib'
             }
+            from("$buildDir/intermediates/cmake/$variantLowered/obj/") {
+                into 'tool'
+            }
             doLast {
                 file("$magiskDir/zygisk").mkdir()
                 fileTree("$magiskDir/lib").visit { f ->
@@ -78,6 +81,11 @@ afterEvaluate {
                     Files.move(srcPath, dstPath)
                 }
                 new File("$magiskDir/lib").deleteDir()
+
+                fileTree("$magiskDir/tool").visit { f ->
+                    if (!f.directory) return
+                    new File("${f.file.absolutePath}/lib${moduleLibraryName}.so").delete()
+                }
             }
         }
 
