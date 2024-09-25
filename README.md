@@ -30,4 +30,5 @@ Build and flash by "./gradlew :module:flashAndRebootRelease"
 # Credits
 [xDL](https://github.com/hexhacking/xDL)<br>
 [Zygisk-Il2CppDumper](https://github.com/Perfare/Zygisk-Il2CppDumper)<br>
-[Ajeossida](https://github.com/hackcatml/ajeossida)
+[Ajeossida](https://github.com/hackcatml/ajeossida)<br>
+[json](https://github.com/nlohmann/json)
