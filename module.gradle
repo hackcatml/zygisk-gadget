@@ -5,6 +5,6 @@ ext {
     toolName = "zygisk-gadget"
     moduleAuthor = "hackcatml"
     moduleDescription = "A Zygisk Module That Injects Frida-Gadget"
-    moduleVersion = "v1.2.0"
+    moduleVersion = "v1.2.1"
     moduleVersionCode = 1
 }

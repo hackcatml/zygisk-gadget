@@ -4,6 +4,7 @@
 #include <fstream>
 #include <thread>
 #include <regex>
+#include <csignal>
 
 #include "logcat.h"
 #include "nlohmann/json.hpp"
@@ -102,6 +103,17 @@ std::string find_matching_file(const fs::path& directory, const std::regex& patt
     return ""; // Return an empty string if no match is found
 }
 
+// Function to handle signals like Ctrl + C (SIGINT)
+void signalHandler(int signal) {
+    json j = get_json(config_file_path);
+    std::vector<std::string> key_path;
+    key_path = {"package", "name"};
+    update_json(j, key_path, "com.hackcatml.test");
+    write_json(j, config_file_path);
+
+    exit(signal);
+}
+
 int main(int argc, char* argv[]) {
     uint uid = getuid();
     if (uid != 0) {
@@ -168,6 +180,9 @@ int main(int argc, char* argv[]) {
 
     std::thread t(write_json, j, config_file_path);
     t.detach();
+
+    // Register signal handler for SIGINT (Ctrl + C)
+    std::signal(SIGINT, signalHandler);
 
     logcat();
 

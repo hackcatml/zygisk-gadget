@@ -12,6 +12,8 @@
 #include "xdl.h"
 #include "nlohmann/json.hpp"
 
+#define BUFFER_SIZE 1024
+
 using zygisk::Api;
 using zygisk::AppSpecializeArgs;
 using zygisk::ServerSpecializeArgs;
@@ -120,6 +122,7 @@ public:
         if (strcmp(package_name, target_package_name.c_str()) == 0) {
             LOGD("Enable gadget injection %s", package_name);
             _enable_gadget_injection = true;
+            write(fd, &_enable_gadget_injection, sizeof(_enable_gadget_injection));
 
             _target_package_name = strdup(target_package_name.c_str());
 
@@ -148,7 +151,7 @@ public:
 private:
     Api* _api{};
     JNIEnv* _env{};
-    bool _enable_gadget_injection{};
+    bool _enable_gadget_injection = false;
     char* _target_package_name{};
     uint _delay{};
     char* _frida_gadget_name{};
@@ -168,31 +171,39 @@ json get_json(const std::string& path) {
     }
 }
 
-static void executeCommand(const char* gadget_path, const char* package_name, const char* format) {
-    char* command;
-    int res = asprintf(&command, format, gadget_path, package_name);
-    if (res == -1) {
-        LOGD("Failed to build command string");
-        return;
-    }
-    LOGD("Command: %s", command);
+static void copy_file(const char *source_path, const char *dest_path) {
+    FILE *source_file, *dest_file;
+    char buffer[BUFFER_SIZE];
+    size_t bytes_read;
 
-    std::array<char, 128> buffer{};
-    std::string result;
-    FILE* pipe = popen(command, "r");
-    if (!pipe) {
-        LOGD("Failed to run command");
-        free(command);
-        return;
+    source_file = fopen(source_path, "rb");
+    if (source_file == nullptr) {
+        LOGD("Error opening source file");
+        exit(EXIT_FAILURE);
     }
 
-    while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
-        result += buffer.data();
+    dest_file = fopen(dest_path, "wb");
+    if (dest_file == nullptr) {
+        LOGD("Error opening destination file");
+        fclose(source_file);
+        exit(EXIT_FAILURE);
     }
-//    LOGD("result: %s", result.c_str());
 
-    pclose(pipe);
-    free(command);
+    while ((bytes_read = fread(buffer, 1, BUFFER_SIZE, source_file)) > 0) {
+        if (fwrite(buffer, 1, bytes_read, dest_file) != bytes_read) {
+            LOGD("Error writing to destination file");
+            fclose(source_file);
+            fclose(dest_file);
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    if (ferror(source_file)) {
+        LOGD("Error reading from source file");
+    }
+
+    fclose(source_file);
+    fclose(dest_file);
 }
 
 static void companion_handler(int i) {
@@ -207,6 +218,13 @@ static void companion_handler(int i) {
     bool frida_config_mode = j["package"]["mode"]["config"];
 
     writeString(i, target_package_name);
+
+    bool enable_gadget_injection;
+    read(i, &enable_gadget_injection, sizeof(enable_gadget_injection));
+    if (!enable_gadget_injection) {
+        return;
+    }
+
     write(i, &delay, sizeof(delay));
 
 #ifdef __arm__
@@ -223,18 +241,22 @@ static void companion_handler(int i) {
     writeString(i, frida_gadget_name);
     std::string frida_gadget_path = module_dir + "/" + frida_gadget_name;
 
-    std::string format = "cp %s /data/data/%s/";
-
+    std::string copy_src;
+    std::string copy_dst;
     if (frida_config_mode) {
         std::regex frida_config_pattern(".*-gadget\\.config$");
         std::string frida_config_name = find_matching_file(module_dir, frida_config_pattern);
         std::string frida_config_path = module_dir + "/" + frida_config_name;
 
         std::string new_frida_config_name = frida_gadget_name.substr(0, frida_gadget_name.find_last_of('.')) + ".config.so";
-        executeCommand(frida_config_path.c_str(), target_package_name.c_str(), (format + new_frida_config_name).c_str());
+        copy_src = frida_config_path;
+        copy_dst = "/data/data/" + target_package_name + "/" + new_frida_config_name;
+        copy_file(copy_src.c_str(), copy_dst.c_str());
     }
 
-    executeCommand(frida_gadget_path.c_str(), target_package_name.c_str(), format.c_str());
+    copy_src = frida_gadget_path;
+    copy_dst = "/data/data/" + target_package_name + "/" + frida_gadget_name;
+    copy_file(copy_src.c_str(), copy_dst.c_str());
 }
 
 REGISTER_ZYGISK_MODULE(MyModule)
